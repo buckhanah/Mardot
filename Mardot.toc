@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: Mardot
+## Notes: Displays DoT/Debuff icons with durations on enemy nameplates
+## Author: IT Solutions
+## Version: 2.1
+## SavedVariables: MardotDB
+
+Mardot.lua
