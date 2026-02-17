@@ -23,23 +23,12 @@ A Turtle WoW addon that displays DoT (Damage over Time) and debuff durations as 
 - Immolate
 - Siphon Life
 
-### Priest
-- Shadow Word: Pain
-- Vampiric Embrace
-- Devouring Plague
-
-### Druid
-- Moonfire
-- Insect Swarm
-- Rake
-- Rip
-
-### Rogue
-- Rupture
-- Garrote
-
-### Hunter
-- Serpent Sting
+### Warrior
+- Rend (21s duration, bleeds every 3s)
+- Hamstring (15s snare)
+ 
+### Paladin
+- Judgements duration (10s)
 
 ## Installation
 
