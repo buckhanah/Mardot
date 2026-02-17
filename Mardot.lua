@@ -102,14 +102,7 @@ Mardot.baseDebuffData = {
         priority = 21,
         enabled = true,
     },
-    ["Unstable Affliction"] = { 
-        duration = 18, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Spell_Shadow_UnstableAffliction_3",
-        color = {0.6, 0.2, 0.6},
-        priority = 22,
-        enabled = true,
-    },
+
     
     -- Priest (Priority 100+)
     ["Shadow Word: Pain"] = { 
