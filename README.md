@@ -124,3 +124,9 @@ Special thanks to the Turtle WoW development team for their custom content that 
 - Dynamic haste tracking
 - Dark Harvest support
 - Priority-based ordering system
+
+
+
+<img width="462" height="42" alt="image" src="https://github.com/user-attachments/assets/2079e905-9057-48cc-b837-da75b2592771" />
+
+<img width="228" height="44" alt="image" src="https://github.com/user-attachments/assets/4410a927-038b-4a42-b44d-d07658f86473" />
