@@ -623,7 +623,7 @@ function Mardot:CreateConfigUI()
     local frame = CreateFrame("Frame", "MardotConfigFrame", UIParent)
     frame:SetWidth(400)
     frame:SetHeight(500)
-    frame:SetPoint("CENTER")
+    frame:SetPoint("CENTER", 0, 0)
     frame:SetBackdrop({
         bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
         edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
