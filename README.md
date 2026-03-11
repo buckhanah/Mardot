@@ -154,9 +154,6 @@ Contributions welcome! Please open issues for:
 - Feature requests
 
 ## Credits
-
-Created by IT Solutions for the Turtle WoW community.
-
 Inspired by Cursive addon's event handling patterns.
 
 ## Changelog
