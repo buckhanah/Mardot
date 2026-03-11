@@ -1,31 +1,140 @@
 -- Mardot.lua
--- Addon to track DoT/Debuff durations on enemy nameplates for Turtle WoW
--- Version: 2.1 - Custom priority ordering and configuration UI
+-- Addon to track DoT/Debuff durations in a movable window for Turtle WoW
+-- Version: 3.1 - SuperWoW UNIT_CASTEVENT support with dynamic haste
+-- Lua 5.0.2 compatible
 
 Mardot = {}
-Mardot.frames = {}
 Mardot.debuffs = {}
+Mardot.targetDebuffs = {}
 Mardot.playerBuffs = {}
 Mardot.lastScan = 0
-Mardot.channeling = nil
+Mardot.mainFrame = nil
+Mardot.hasSuperwow = false
+Mardot.pendingCast = {}
+Mardot.darkHarvest = {
+    active = false,
+    targetGuid = nil,
+    targetName = nil,
+    startTime = nil,
+    spellID = nil,
+}
+
+-- Dark Harvest spell IDs
+Mardot.darkHarvestSpellIds = {
+    [52550] = true, -- Rank 1
+    [52551] = true, -- Rank 2
+    [52552] = true, -- Rank 3
+}
 
 -- Default configuration
 Mardot.defaults = {
     enabled = true,
-    iconSize = 24,
-    offsetX = 0,
-    offsetY = -30,
-    updateInterval = 0.05,
-    maxIcons = 6,
-    iconSpacing = 2,
+    iconSize = 32,
+    updateInterval = 0.1,
+    maxIcons = 8,
+    iconSpacing = 4,
+    locked = false,
+    posX = nil,
+    posY = nil,
 }
 
 -- Initialize config
 Mardot.config = {}
 
+-- Spell ID to name mapping for SuperWoW UNIT_CASTEVENT
+Mardot.spellIdToName = {
+    -- Warlock Curses
+    [980] = "Curse of Agony",
+    [1014] = "Curse of Agony",
+    [6217] = "Curse of Agony",
+    [11711] = "Curse of Agony",
+    [11712] = "Curse of Agony",
+    [11713] = "Curse of Agony",
+    [27218] = "Curse of Agony",
+    
+    [17862] = "Curse of Shadows",
+    [17937] = "Curse of Shadows",
+    
+    [704] = "Curse of Recklessness",
+    [7658] = "Curse of Recklessness",
+    [7659] = "Curse of Recklessness",
+    [11717] = "Curse of Recklessness",
+    [27226] = "Curse of Recklessness",
+    
+    [603] = "Curse of Doom",
+    [30910] = "Curse of Doom",
+    
+    [702] = "Curse of Weakness",
+    [1108] = "Curse of Weakness",
+    [6205] = "Curse of Weakness",
+    [7646] = "Curse of Weakness",
+    [11707] = "Curse of Weakness",
+    [11708] = "Curse of Weakness",
+    [27224] = "Curse of Weakness",
+    
+    [1714] = "Curse of Tongues",
+    [11719] = "Curse of Tongues",
+    
+    [1490] = "Curse of Elements",
+    [11721] = "Curse of Elements",
+    [11722] = "Curse of Elements",
+    [27228] = "Curse of Elements",
+    
+    -- Corruption
+    [172] = "Corruption",
+    [6222] = "Corruption",
+    [6223] = "Corruption",
+    [7648] = "Corruption",
+    [11671] = "Corruption",
+    [11672] = "Corruption",
+    [25311] = "Corruption",
+    [27216] = "Corruption",
+    
+    -- Immolate
+    [348] = "Immolate",
+    [707] = "Immolate",
+    [1094] = "Immolate",
+    [2941] = "Immolate",
+    [11665] = "Immolate",
+    [11667] = "Immolate",
+    [11668] = "Immolate",
+    [25309] = "Immolate",
+    [27215] = "Immolate",
+    
+    -- Siphon Life
+    [18265] = "Siphon Life",
+    [18879] = "Siphon Life",
+    [18880] = "Siphon Life",
+    [18881] = "Siphon Life",
+    [27264] = "Siphon Life",
+    [30911] = "Siphon Life",
+    
+    -- Paladin Judgements
+    [20185] = "Judgement of Light",
+    [20344] = "Judgement of Light",
+    [20345] = "Judgement of Light",
+    [20346] = "Judgement of Light",
+    [27162] = "Judgement of Light",
+    
+    [20186] = "Judgement of Wisdom",
+    [20354] = "Judgement of Wisdom",
+    [20355] = "Judgement of Wisdom",
+    [27163] = "Judgement of Wisdom",
+    
+    [20184] = "Judgement of Justice",
+    
+    [21183] = "Judgement of the Crusader",
+    [20188] = "Judgement of the Crusader",
+    [20300] = "Judgement of the Crusader",
+    [20301] = "Judgement of the Crusader",
+    [20302] = "Judgement of the Crusader",
+    [20303] = "Judgement of the Crusader",
+    [27159] = "Judgement of the Crusader",
+}
+
 -- Base debuff durations, icons, and priorities
 Mardot.baseDebuffData = {
-    -- Warlock Curses (Priority 1-3)
+    -- Warlock Curses (Priority 1-7)
     ["Curse of Agony"] = { 
         duration = 24, 
         tickRate = 2, 
@@ -74,6 +183,14 @@ Mardot.baseDebuffData = {
         priority = 6,
         enabled = true,
     },
+    ["Curse of Elements"] = { 
+        duration = 300, 
+        tickRate = 300, 
+        icon = "Interface\\Icons\\Spell_Shadow_ChillTouch",
+        color = {0.2, 0.4, 0.6},
+        priority = 7,
+        enabled = true,
+    },
     
     -- Corruption (Priority 10)
     ["Corruption"] = { 
@@ -102,94 +219,67 @@ Mardot.baseDebuffData = {
         priority = 21,
         enabled = true,
     },
+    
+    -- Paladin Judgements (Priority 60+)
+    ["Judgement of Light"] = { 
+        duration = 10, 
+        tickRate = 10, 
+        icon = "Interface\\Icons\\Spell_Holy_RighteousFury",
+        color = {1.0, 0.9, 0.2},
+        priority = 60,
+        enabled = true,
+    },
+    ["Judgement of Wisdom"] = { 
+        duration = 10, 
+        tickRate = 10, 
+        icon = "Interface\\Icons\\Spell_Holy_RighteousFury",
+        color = {0.2, 0.6, 1.0},
+        priority = 61,
+        enabled = true,
+    },
+    ["Judgement of Justice"] = { 
+        duration = 10, 
+        tickRate = 10, 
+        icon = "Interface\\Icons\\Spell_Holy_RighteousFury",
+        color = {0.9, 0.5, 0.1},
+        priority = 62,
+        enabled = true,
+    },
+    ["Judgement of the Crusader"] = { 
+        duration = 10, 
+        tickRate = 10, 
+        icon = "Interface\\Icons\\Spell_Holy_RighteousFury",
+        color = {1.0, 0.2, 0.2},
+        priority = 63,
+        enabled = true,
+    },
+}
 
-    
-    -- Priest (Priority 100+)
-    ["Shadow Word: Pain"] = { 
-        duration = 18, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Spell_Shadow_ShadowWordPain",
-        color = {0.4, 0.0, 0.4},
-        priority = 100,
-        enabled = true,
+-- Paladin Seals (tracked as player buffs)
+Mardot.paladinSeals = {
+    ["Seal of Righteousness"] = {
+        icon = "Interface\\Icons\\Ability_ThunderBolt",
+        color = {1.0, 0.9, 0.2},
     },
-    ["Vampiric Embrace"] = { 
-        duration = 60, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Spell_Shadow_UnsummonBuilding",
-        color = {0.6, 0.0, 0.0},
-        priority = 101,
-        enabled = true,
+    ["Seal of the Crusader"] = {
+        icon = "Interface\\Icons\\Spell_Holy_HolySmite",
+        color = {1.0, 0.2, 0.2},
     },
-    ["Devouring Plague"] = { 
-        duration = 24, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Spell_Shadow_BlackPlague",
-        color = {0.3, 0.6, 0.3},
-        priority = 102,
-        enabled = true,
+    ["Seal of Command"] = {
+        icon = "Interface\\Icons\\Ability_Warrior_InnerRage",
+        color = {1.0, 0.5, 0.0},
     },
-    
-    -- Druid (Priority 200+)
-    ["Moonfire"] = { 
-        duration = 12, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Spell_Nature_StarFall",
-        color = {0.4, 0.6, 1.0},
-        priority = 200,
-        enabled = true,
+    ["Seal of Light"] = {
+        icon = "Interface\\Icons\\Spell_Holy_HealingAura",
+        color = {1.0, 1.0, 0.5},
     },
-    ["Insect Swarm"] = { 
-        duration = 12, 
-        tickRate = 2, 
-        icon = "Interface\\Icons\\Spell_Nature_InsectSwarm",
-        color = {0.6, 0.8, 0.2},
-        priority = 201,
-        enabled = true,
+    ["Seal of Wisdom"] = {
+        icon = "Interface\\Icons\\Spell_Holy_RighteousnessAura",
+        color = {0.3, 0.6, 1.0},
     },
-    ["Rake"] = { 
-        duration = 9, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Ability_Druid_Disembowel",
-        color = {0.8, 0.4, 0.0},
-        priority = 202,
-        enabled = true,
-    },
-    ["Rip"] = { 
-        duration = 12, 
-        tickRate = 2, 
-        icon = "Interface\\Icons\\Ability_GhoulFrenzy",
-        color = {0.8, 0.0, 0.0},
-        priority = 203,
-        enabled = true,
-    },
-    
-    -- Rogue (Priority 300+)
-    ["Rupture"] = { 
-        duration = 16, 
-        tickRate = 2, 
-        icon = "Interface\\Icons\\Ability_Rogue_Rupture",
-        color = {0.8, 0.0, 0.0},
-        priority = 300,
-        enabled = true,
-    },
-    ["Garrote"] = { 
-        duration = 18, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Ability_Rogue_Garrote",
-        color = {0.6, 0.0, 0.0},
-        priority = 301,
-        enabled = true,
-    },
-    
-    -- Hunter (Priority 400+)
-    ["Serpent Sting"] = { 
-        duration = 15, 
-        tickRate = 3, 
-        icon = "Interface\\Icons\\Ability_Hunter_Quickshot",
-        color = {0.0, 0.8, 0.0},
-        priority = 400,
-        enabled = true,
+    ["Seal of Justice"] = {
+        icon = "Interface\\Icons\\Spell_Holy_SealOfWrath",
+        color = {0.9, 0.7, 0.3},
     },
 }
 
@@ -199,14 +289,12 @@ function Mardot:InitializeSavedVars()
         MardotDB = {}
     end
     
-    -- Copy defaults
     for k, v in pairs(self.defaults) do
         if MardotDB[k] == nil then
             MardotDB[k] = v
         end
     end
     
-    -- Initialize debuff enabled states
     if not MardotDB.debuffStates then
         MardotDB.debuffStates = {}
     end
@@ -223,7 +311,24 @@ end
 -- Initialize the addon
 function Mardot:Initialize()
     self:InitializeSavedVars()
-    self:Print("Mardot v2.1 loaded! Type /mardot config for settings")
+    
+    -- Check for SuperWoW
+    if GetWoWVersion then
+        local major, minor, patch, client = GetWoWVersion()
+        if client and client >= 12340 then
+            self.hasSuperwow = true
+            self:Print("SuperWoW detected! Using UNIT_CASTEVENT for accurate tracking")
+        end
+    end
+    
+    if not self.hasSuperwow then
+        self:Print("v3.1 loaded! Using scan-based tracking")
+    else
+        self:Print("v3.1 loaded! Type /mardot for commands")
+    end
+    
+    -- Create main display window
+    self:CreateMainWindow()
     
     -- Create update frame
     self.updateFrame = CreateFrame("Frame")
@@ -231,269 +336,316 @@ function Mardot:Initialize()
     self.updateFrame:SetScript("OnUpdate", function()
         this.elapsed = this.elapsed + arg1
         if this.elapsed >= Mardot.config.updateInterval then
-            Mardot:UpdateAllPlates()
-            Mardot:ScanPlayerBuffs()
+            Mardot:ScanTargetDebuffs()
+            Mardot:UpdateDisplay()
             this.elapsed = 0
         end
     end)
     
-    -- Register combat log events
-    self:RegisterCombatLogEvents()
-    
-    -- Hook nameplate creation
-    self:HookNameplates()
+    -- Register events
+    self:RegisterEvents()
 end
 
--- Register combat log events
-function Mardot:RegisterCombatLogEvents()
+-- Register events
+function Mardot:RegisterEvents()
     self.eventFrame = CreateFrame("Frame")
-    self.eventFrame:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE")
-    self.eventFrame:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_DAMAGE")
-    self.eventFrame:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_OTHER")
-    self.eventFrame:RegisterEvent("PLAYER_AURAS_CHANGED")
-    self.eventFrame:RegisterEvent("SPELLCAST_CHANNEL_START")
-    self.eventFrame:RegisterEvent("SPELLCAST_CHANNEL_UPDATE")
-    self.eventFrame:RegisterEvent("SPELLCAST_CHANNEL_STOP")
-    self.eventFrame:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE")
+    self.eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
     self.eventFrame:RegisterEvent("VARIABLES_LOADED")
+    self.eventFrame:RegisterEvent("SPELLCAST_CHANNEL_START")
+    self.eventFrame:RegisterEvent("SPELLCAST_CHANNEL_STOP")
+    self.eventFrame:RegisterEvent("SPELLCAST_INTERRUPTED")
+    
+    if self.hasSuperwow then
+        self.eventFrame:RegisterEvent("UNIT_CASTEVENT")
+    end
+    
+    self.eventFrame:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_OTHER")
     
     self.eventFrame:SetScript("OnEvent", function()
         if event == "VARIABLES_LOADED" then
             Mardot:InitializeSavedVars()
-        elseif event == "CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE" or 
-           event == "CHAT_MSG_SPELL_PERIODIC_HOSTILEPLAYER_DAMAGE" then
-            Mardot:OnDebuffApplied(arg1)
-        elseif event == "CHAT_MSG_SPELL_AURA_GONE_OTHER" then
-            Mardot:OnDebuffFaded(arg1)
-        elseif event == "PLAYER_AURAS_CHANGED" then
-            Mardot:ScanPlayerBuffs()
+            if Mardot.config.posX and Mardot.config.posY then
+                Mardot.mainFrame:ClearAllPoints()
+                Mardot.mainFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", Mardot.config.posX, Mardot.config.posY)
+            end
+        elseif event == "PLAYER_TARGET_CHANGED" then
+            Mardot:ScanTargetDebuffs()
         elseif event == "SPELLCAST_CHANNEL_START" then
             Mardot:OnChannelStart()
-        elseif event == "SPELLCAST_CHANNEL_STOP" or event == "SPELLCAST_CHANNEL_UPDATE" then
+        elseif event == "SPELLCAST_CHANNEL_STOP" or event == "SPELLCAST_INTERRUPTED" then
             Mardot:OnChannelStop()
-        elseif event == "CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE" then
-            Mardot:OnDarkHarvestTick(arg1)
+        elseif event == "UNIT_CASTEVENT" then
+            -- arg1 = casterGuid, arg2 = targetGuid, arg3 = event, arg4 = spellID, arg5 = castDuration
+            Mardot:OnUnitCastEvent(arg1, arg2, arg3, arg4, arg5)
+        elseif event == "CHAT_MSG_SPELL_AURA_GONE_OTHER" then
+            Mardot:OnDebuffFaded(arg1)
         end
     end)
 end
 
--- Track when player starts channeling (like Dark Harvest)
+-- Track Dark Harvest channeling
 function Mardot:OnChannelStart()
     local spell = CastingBarFrame.channeling
-    if spell and spell == "Dark Harvest" then
-        self.channeling = {
-            spell = "Dark Harvest",
-            startTime = GetTime(),
-            target = UnitName("target"),
-        }
+    if not spell then return end
+    
+    -- Check if it's Dark Harvest
+    -- We need to scan tooltip to get spell ID or check spell name
+    -- For now, check name
+    if spell == "Dark Harvest" then
+        local targetName = UnitExists("target") and UnitName("target")
+        local _, targetGuid = UnitExists("target")
+        
+        if targetName and targetGuid then
+            self.darkHarvest.active = true
+            self.darkHarvest.targetGuid = targetGuid
+            self.darkHarvest.targetName = targetName
+            self.darkHarvest.startTime = GetTime()
+            
+            -- Mark all DoTs on this target with DH start time
+            for key, debuff in pairs(self.debuffs) do
+                if debuff.target == targetName then
+                    debuff.dhStartTime = GetTime()
+                    debuff.dhLastTick = GetTime()
+                end
+            end
+            
+            self:Print("Dark Harvest started on " .. targetName)
+        end
     end
 end
 
 function Mardot:OnChannelStop()
-    if self.channeling and self.channeling.spell == "Dark Harvest" then
-        if self.channeling.target then
-            self:UpdateDoTsAfterDarkHarvest(self.channeling.target)
-        end
-        self.channeling = nil
-    end
-end
-
--- Track Dark Harvest ticks to update DoT durations dynamically
-function Mardot:OnDarkHarvestTick(message)
-    if not self.channeling or self.channeling.spell ~= "Dark Harvest" then return end
-    
-    if self.channeling.target then
-        local target = self.channeling.target
+    if self.darkHarvest.active then
+        local targetName = self.darkHarvest.targetName
         
-        for spell, data in pairs(self.baseDebuffData) do
-            local key = target.."-"..spell
-            local debuffInfo = self.debuffs[key]
-            
-            if debuffInfo and debuffInfo.tickRate then
-                debuffInfo.lastTick = GetTime()
-                local tickReduction = debuffInfo.tickRate
-                debuffInfo.duration = debuffInfo.duration - tickReduction
-                debuffInfo.darkHarvestTicks = (debuffInfo.darkHarvestTicks or 0) + 1
+        -- Mark all DoTs on this target with DH end time
+        for key, debuff in pairs(self.debuffs) do
+            if debuff.target == targetName and debuff.dhStartTime then
+                debuff.dhEndTime = GetTime()
             end
         end
-    end
-end
-
--- Update DoTs after Dark Harvest channeling ends
-function Mardot:UpdateDoTsAfterDarkHarvest(target)
-    for spell, data in pairs(self.baseDebuffData) do
-        local key = target.."-"..spell
-        local debuffInfo = self.debuffs[key]
         
-        if debuffInfo and debuffInfo.darkHarvestTicks then
-            local elapsed = GetTime() - debuffInfo.applied
-            if elapsed >= debuffInfo.duration then
-                self.debuffs[key] = nil
-            end
-        end
+        self:Print("Dark Harvest ended")
+        
+        self.darkHarvest.active = false
+        self.darkHarvest.targetGuid = nil
+        self.darkHarvest.targetName = nil
+        self.darkHarvest.startTime = nil
     end
 end
 
--- Parse combat log for debuff application
-function Mardot:OnDebuffApplied(message)
-    local target, spell = string.match(message, "(.+) is afflicted by (.+)%.")
-    if not target or not spell then
-        target, spell = string.match(message, "(.+) suffers? .- from (.+)%.")
+-- Handle UNIT_CASTEVENT for spell tracking (SuperWoW)
+function Mardot:OnUnitCastEvent(casterGuid, targetGuid, eventType, spellID, castDuration)
+    if eventType ~= "CAST" then return end
+    
+    local _, playerGuid = UnitExists("player")
+    if casterGuid ~= playerGuid then return end
+    
+    -- Get spell name from ID
+    local spellName = self.spellIdToName[spellID]
+    if not spellName then return end
+    
+    -- Check if we're tracking this spell
+    local baseData = self.baseDebuffData[spellName]
+    if not baseData or not self.config.debuffStates[spellName] then return end
+    
+    -- Check if target is current target
+    local _, targetPlayerGuid = UnitExists("target")
+    if targetGuid ~= targetPlayerGuid then return end
+    
+    local targetName = UnitName("target")
+    if not targetName then return end
+    
+    -- Get current haste for duration calculation
+    local currentHaste = self:GetCurrentHaste()
+    local duration = baseData.duration / (1 + currentHaste / 100)
+    
+    -- Store pending cast
+    self.pendingCast = {
+        spellID = spellID,
+        spellName = spellName,
+        targetGuid = targetGuid,
+        targetName = targetName,
+        castTime = GetTime(),
+    }
+    
+    -- Add delay for latency/resist detection
+    local _, _, ping = GetNetStats()
+    local delay = 0.2
+    if ping and ping > 0 and ping < 500 then
+        delay = 0.05 + (ping / 1000)
     end
     
-    if target and spell and self.baseDebuffData[spell] then
-        local key = target.."-"..spell
-        local currentHaste = self:GetCurrentHaste()
-        local baseData = self.baseDebuffData[spell]
-        
-        local actualDuration = baseData.duration / (1 + currentHaste / 100)
-        
-        self.debuffs[key] = {
-            applied = GetTime(),
-            duration = actualDuration,
-            baseDuration = baseData.duration,
-            tickRate = baseData.tickRate / (1 + currentHaste / 100),
-            hasteAtCast = currentHaste,
-            lastTick = GetTime(),
-            spell = spell,
-            darkHarvestTicks = 0,
-        }
-    end
+    -- Schedule debuff application
+    Mardot:ScheduleDebuffApplication(spellName, targetName, GetTime(), duration, delay)
 end
 
--- Parse combat log for debuff fade
-function Mardot:OnDebuffFaded(message)
-    local spell, target = string.match(message, "(.+) fades from (.+)%.")
+-- Schedule debuff application with latency compensation
+function Mardot:ScheduleDebuffApplication(spellName, targetName, startTime, duration, delay)
+    local key = targetName .. "-" .. spellName
     
-    if target and spell and self.baseDebuffData[spell] then
-        local key = target.."-"..spell
-        self.debuffs[key] = nil
+    -- Cancel existing timer if any
+    if self.scheduledDebuffs and self.scheduledDebuffs[key] then
+        self.scheduledDebuffs[key] = nil
     end
+    
+    -- Create delayed application
+    if not self.scheduledDebuffs then
+        self.scheduledDebuffs = {}
+    end
+    
+    self.scheduledDebuffs[key] = {
+        spellName = spellName,
+        targetName = targetName,
+        startTime = startTime,
+        duration = duration,
+        applyTime = GetTime() + delay,
+    }
 end
 
--- Scan player buffs for haste effects
-function Mardot:ScanPlayerBuffs()
+-- Check scheduled debuff applications
+function Mardot:CheckScheduledDebuffs()
+    if not self.scheduledDebuffs then return end
+    
     local currentTime = GetTime()
-    if currentTime - self.lastScan < 0.5 then return end
-    self.lastScan = currentTime
-    
-    self.playerBuffs = {}
-    
-    for i = 1, 32 do
-        local texture, applications = UnitBuff("player", i)
-        if not texture then break end
-        
-        DoTTrackerTooltip = DoTTrackerTooltip or CreateFrame("GameTooltip", "DoTTrackerTooltip", nil, "GameTooltipTemplate")
-        DoTTrackerTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
-        DoTTrackerTooltip:SetUnitBuff("player", i)
-        
-        local buffName = DoTTrackerTooltipTextLeft1:GetText()
-        if buffName then
-            self.playerBuffs[buffName] = true
+    for key, data in pairs(self.scheduledDebuffs) do
+        if currentTime >= data.applyTime then
+            -- Apply the debuff
+            self:ApplyDebuff(data.spellName, data.targetName, data.startTime, data.duration)
+            self.scheduledDebuffs[key] = nil
         end
     end
 end
 
--- Calculate current haste percentage
+-- Apply debuff
+function Mardot:ApplyDebuff(spellName, targetName, startTime, duration)
+    -- Clear pending cast
+    self.pendingCast = {}
+    
+    local key = targetName .. "-" .. spellName
+    local baseData = self.baseDebuffData[spellName]
+    
+    if not self.debuffs[key] then
+        self.debuffs[key] = {}
+    end
+    
+    self.debuffs[key] = {
+        spell = spellName,
+        target = targetName,
+        applied = startTime,
+        duration = duration,
+        baseDuration = baseData.duration,
+        stacks = 1,
+    }
+    
+    self:Print("Applied: " .. spellName .. " on " .. targetName .. " (" .. string.format("%.1f", duration) .. "s)")
+end
+
+-- Handle debuff fade events
+function Mardot:OnDebuffFaded(message)
+    -- Pattern: "(.+) fades from (.+)."
+    local spellName, target = string.match(message, "(.+) fades from (.+)%.")
+    
+    if spellName and target then
+        local targetName = UnitExists("target") and UnitName("target")
+        if target == targetName then
+            -- Check if we're tracking this spell
+            if self.baseDebuffData[spellName] then
+                local key = target .. "-" .. spellName
+                if self.debuffs[key] then
+                    self.debuffs[key] = nil
+                    self:Print("Faded: " .. spellName .. " from " .. target)
+                end
+            end
+            
+            -- Rescan to be sure
+            self:ScanTargetDebuffs()
+        end
+    end
+end
+
+-- Get current haste percentage (for dynamic duration calculation)
 function Mardot:GetCurrentHaste()
     local totalHaste = 0
     
-    if self.playerBuffs["Bloodlust"] then
-        totalHaste = totalHaste + 30
+    -- Scan player buffs for haste effects
+    for i = 1, 32 do
+        local texture = UnitBuff("player", i)
+        if not texture then break end
+        
+        -- Get buff name via tooltip
+        MardotTooltip = MardotTooltip or CreateFrame("GameTooltip", "MardotTooltip", nil, "GameTooltipTemplate")
+        MardotTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
+        MardotTooltip:ClearLines()
+        MardotTooltip:SetUnitBuff("player", i)
+        
+        local buffName = MardotTooltipTextLeft1:GetText()
+        
+        -- Check for known haste buffs
+        if buffName == "Bloodlust" or buffName == "Heroism" then
+            totalHaste = totalHaste + 30
+        elseif buffName == "Berserking" then
+            local healthPercent = UnitHealth("player") / UnitHealthMax("player")
+            local berserkingHaste = 10 + (1 - healthPercent) * 20
+            totalHaste = totalHaste + berserkingHaste
+        end
     end
-    
-    if self.playerBuffs["Berserking"] then
-        local healthPercent = UnitHealth("player") / UnitHealthMax("player")
-        local berserkingHaste = 10 + (1 - healthPercent) * 20
-        totalHaste = totalHaste + berserkingHaste
-    end
-    
-    totalHaste = totalHaste + self:GetGearHaste()
     
     return totalHaste
 end
 
--- Scan equipped gear for haste
-function Mardot:GetGearHaste()
-    local gearHaste = 0
-    local scanTooltip = CreateFrame("GameTooltip", "MardotScanTooltip", nil, "GameTooltipTemplate")
-    scanTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
-    
-    for slot = 1, 19 do
-        scanTooltip:ClearLines()
-        scanTooltip:SetInventoryItem("player", slot)
-        
-        for i = 1, scanTooltip:NumLines() do
-            local line = getglobal("MardotScanTooltipTextLeft"..i)
-            if line then
-                local text = line:GetText()
-                if text then
-                    local haste = string.match(text, "spell haste rating by (%d+)")
-                    if not haste then
-                        haste = string.match(text, "%+(%d+) Spell Haste")
-                    end
-                    if not haste then
-                        haste = string.match(text, "Increases spell haste rating by (%d+)")
-                    end
-                    
-                    if haste then
-                        gearHaste = gearHaste + tonumber(haste)
-                    end
-                end
-            end
-        end
-    end
-    
-    return gearHaste * 0.1
-end
-
--- Hook into nameplate system
-function Mardot:HookNameplates()
-    local function ScanNameplates()
-        for i = 1, WorldFrame:GetNumChildren() do
-            local frame = select(i, WorldFrame:GetChildren())
-            local region = select(2, frame:GetRegions())
-            
-            if region and region:GetObjectType() == "Texture" and region:GetTexture() == "Interface\\Tooltips\\Nameplate-Border" then
-                if not Mardot.frames[frame] then
-                    Mardot:SetupNameplate(frame)
-                end
-            end
-        end
-    end
-    
-    self.scanFrame = CreateFrame("Frame")
-    self.scanFrame.timer = 0
-    self.scanFrame:SetScript("OnUpdate", function()
-        this.timer = this.timer - arg1
-        if this.timer <= 0 then
-            this.timer = 0.5
-            ScanNameplates()
-        end
-    end)
-end
-
--- Setup DoT display on a nameplate
-function Mardot:SetupNameplate(plate)
-    if self.frames[plate] then return end
+-- Create main display window
+function Mardot:CreateMainWindow()
+    local frame = CreateFrame("Frame", "MardotMainFrame", UIParent)
     
     local iconSize = self.config.iconSize
-    local maxIcons = self.config.maxIcons
     local spacing = self.config.iconSpacing
+    local maxIcons = self.config.maxIcons
     
-    local dotFrame = CreateFrame("Frame", nil, plate)
-    dotFrame:SetWidth(maxIcons * (iconSize + spacing))
-    dotFrame:SetHeight(iconSize)
-    dotFrame:SetPoint("TOP", plate, "BOTTOM", self.config.offsetX, self.config.offsetY)
+    frame:SetWidth(maxIcons * (iconSize + spacing) + 20)
+    frame:SetHeight(iconSize + 30)
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
     
-    dotFrame.icons = {}
-    dotFrame.plate = plate
+    -- Backdrop
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true,
+        tileSize = 32,
+        edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+    frame:SetBackdropColor(0, 0, 0, 0.8)
     
+    -- Make it movable
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", function()
+        if not Mardot.config.locked then
+            this:StartMoving()
+        end
+    end)
+    frame:SetScript("OnDragStop", function()
+        this:StopMovingOrSizing()
+        local point, _, _, x, y = this:GetPoint()
+        Mardot.config.posX = x
+        Mardot.config.posY = y
+    end)
+    
+    -- Title
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.title:SetPoint("TOP", frame, "TOP", 0, -8)
+    frame.title:SetText("Mardot - Target DoTs")
+    frame.title:SetTextColor(1, 0.82, 0)
+    
+    -- Icon container
+    frame.icons = {}
     for i = 1, maxIcons do
-        local icon = CreateFrame("Frame", nil, dotFrame)
+        local icon = CreateFrame("Frame", nil, frame)
         icon:SetWidth(iconSize)
         icon:SetHeight(iconSize)
-        icon:SetPoint("LEFT", dotFrame, "LEFT", (i-1) * (iconSize + spacing), 0)
+        icon:SetPoint("LEFT", frame, "LEFT", 10 + (i-1) * (iconSize + spacing), -5)
         
         icon.texture = icon:CreateTexture(nil, "BACKGROUND")
         icon.texture:SetAllPoints(icon)
@@ -504,106 +656,266 @@ function Mardot:SetupNameplate(plate)
         icon.border:SetBlendMode("ADD")
         icon.border:SetAllPoints(icon)
         
-        icon.cooldown = CreateFrame("Cooldown", nil, icon)
-        icon.cooldown:SetAllPoints(icon)
+        icon.text = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        icon.text:SetPoint("CENTER", icon, "CENTER", 0, 0)
         
-        icon.text = icon:CreateFontString(nil, "OVERLAY")
-        icon.text:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, iconSize * 0.5), "OUTLINE")
-        icon.text:SetPoint("BOTTOM", icon, "BOTTOM", 0, -2)
+        icon.name = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        icon.name:SetPoint("BOTTOM", icon, "TOP", 0, 2)
         
         icon:Hide()
-        dotFrame.icons[i] = icon
+        frame.icons[i] = icon
     end
     
-    self.frames[plate] = dotFrame
+    self.mainFrame = frame
+    
+    -- Create Seal tracker frame for Paladins
+    self:CreateSealFrame()
 end
 
--- Update all nameplates
-function Mardot:UpdateAllPlates()
-    for plate, dotFrame in pairs(self.frames) do
-        if plate:IsVisible() then
-            self:UpdatePlate(plate, dotFrame)
-        end
-    end
+-- Create Seal display frame (under player character in 3D world)
+function Mardot:CreateSealFrame()
+    local _, playerClass = UnitClass("player")
+    if playerClass ~= "PALADIN" then return end
+    
+    local frame = CreateFrame("Frame", "MardotSealFrame", UIParent)
+    
+    local iconSize = 48
+    frame:SetWidth(iconSize + 10)
+    frame:SetHeight(iconSize + 10)
+    -- Position in center-bottom of screen, below character feet
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, -150)
+    
+    -- Backdrop
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true,
+        tileSize = 16,
+        edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 }
+    })
+    frame:SetBackdropColor(0, 0, 0, 0.7)
+    
+    -- Icon
+    frame.icon = CreateFrame("Frame", nil, frame)
+    frame.icon:SetWidth(iconSize)
+    frame.icon:SetHeight(iconSize)
+    frame.icon:SetPoint("CENTER", frame, "CENTER", 0, 0)
+    
+    frame.icon.texture = frame.icon:CreateTexture(nil, "BACKGROUND")
+    frame.icon.texture:SetAllPoints(frame.icon)
+    frame.icon.texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    
+    frame.icon.border = frame.icon:CreateTexture(nil, "BORDER")
+    frame.icon.border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    frame.icon.border:SetBlendMode("ADD")
+    frame.icon.border:SetAllPoints(frame.icon)
+    
+    frame:Hide()
+    self.sealFrame = frame
 end
 
--- Get target name from nameplate
-function Mardot:GetTargetNameFromPlate(plate)
-    local children = {plate:GetChildren()}
-    for _, child in ipairs(children) do
-        local regions = {child:GetRegions()}
-        for _, region in ipairs(regions) do
-            if region:GetObjectType() == "FontString" then
-                local text = region:GetText()
-                if text and text ~= "" then
-                    return text
-                end
-            end
-        end
-    end
-    return nil
-end
-
--- Update a single nameplate's DoT display
-function Mardot:UpdatePlate(plate, dotFrame)
-    local targetName = self:GetTargetNameFromPlate(plate)
-    
-    if not targetName then
-        for _, icon in ipairs(dotFrame.icons) do
-            icon:Hide()
-        end
-        return
-    end
-    
-    -- Collect active DoTs
-    local activeDots = {}
-    local currentTime = GetTime()
-    
-    for spell, data in pairs(self.baseDebuffData) do
-        -- Check if this debuff is enabled
-        if self.config.debuffStates[spell] then
-            local key = targetName.."-"..spell
-            local debuffInfo = self.debuffs[key]
-            
-            if debuffInfo then
-                local elapsed = currentTime - debuffInfo.applied
-                local remaining = debuffInfo.duration - elapsed
-                
-                if remaining > 0 then
-                    table.insert(activeDots, {
-                        spell = spell,
-                        remaining = remaining,
-                        icon = data.icon,
-                        color = data.color,
-                        duration = debuffInfo.duration,
-                        priority = data.priority,
-                    })
-                else
+-- Scan target for debuffs (fallback method, still used for verification)
+function Mardot:ScanTargetDebuffs()
+    if not UnitExists("target") or UnitIsFriend("player", "target") then
+        -- Clear debuffs for old target
+        local targetName = self.lastTargetName
+        if targetName then
+            for key, info in pairs(self.debuffs) do
+                if info.target == targetName then
                     self.debuffs[key] = nil
                 end
             end
         end
+        self.lastTargetName = nil
+        return
     end
     
-    -- Sort by PRIORITY (lower number = higher priority)
-    table.sort(activeDots, function(a, b) return a.priority < b.priority end)
+    local targetName = UnitName("target")
+    self.lastTargetName = targetName
+    local foundDebuffs = {}
+    
+    -- Scan debuffs on target
+    for i = 1, 16 do
+        local texture, stacks = UnitDebuff("target", i)
+        if not texture then break end
+        
+        -- Get debuff name via tooltip
+        MardotTooltip = MardotTooltip or CreateFrame("GameTooltip", "MardotTooltip", nil, "GameTooltipTemplate")
+        MardotTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
+        MardotTooltip:ClearLines()
+        MardotTooltip:SetUnitDebuff("target", i)
+        
+        local debuffName = MardotTooltipTextLeft1:GetText()
+        
+        if debuffName and self.baseDebuffData[debuffName] and self.config.debuffStates[debuffName] then
+            local key = targetName .. "-" .. debuffName
+            foundDebuffs[key] = true
+            
+            -- If not already tracked via UNIT_CASTEVENT, add it via scan
+            if not self.debuffs[key] then
+                local baseData = self.baseDebuffData[debuffName]
+                self.debuffs[key] = {
+                    applied = GetTime(),
+                    duration = baseData.duration,
+                    spell = debuffName,
+                    target = targetName,
+                    stacks = stacks or 1,
+                    scanned = true,
+                }
+            else
+                -- Update stacks
+                self.debuffs[key].stacks = stacks or 1
+            end
+        end
+    end
+    
+    -- Remove debuffs no longer on target
+    for key, info in pairs(self.debuffs) do
+        if info.target == targetName and not foundDebuffs[key] then
+            self.debuffs[key] = nil
+        end
+    end
+    
+    -- Check scheduled debuffs
+    self:CheckScheduledDebuffs()
+    
+    -- Scan for active seal (Paladin only)
+    self:ScanPlayerSeal()
+end
+
+-- Scan player buffs for active Paladin seal
+function Mardot:ScanPlayerSeal()
+    if not self.sealFrame then return end
+    
+    local activeSeal = nil
+    
+    -- Scan player buffs
+    for i = 1, 32 do
+        local texture = UnitBuff("player", i)
+        if not texture then break end
+        
+        -- Get buff name via tooltip
+        MardotTooltip = MardotTooltip or CreateFrame("GameTooltip", "MardotTooltip", nil, "GameTooltipTemplate")
+        MardotTooltip:SetOwner(WorldFrame, "ANCHOR_NONE")
+        MardotTooltip:ClearLines()
+        MardotTooltip:SetUnitBuff("player", i)
+        
+        local buffName = MardotTooltipTextLeft1:GetText()
+        
+        if buffName and self.paladinSeals[buffName] then
+            activeSeal = buffName
+            break
+        end
+    end
+    
+    -- Update seal frame
+    if activeSeal then
+        local sealData = self.paladinSeals[activeSeal]
+        self.sealFrame.icon.texture:SetTexture(sealData.icon)
+        self.sealFrame.icon.border:SetVertexColor(unpack(sealData.color))
+        self.sealFrame:Show()
+    else
+        self.sealFrame:Hide()
+    end
+end
+
+-- Calculate time remaining with Dark Harvest acceleration
+function Mardot:CalculateTimeRemaining(debuff)
+    local currentTime = GetTime()
+    local elapsed = currentTime - debuff.applied
+    
+    -- Calculate Dark Harvest reduction
+    local dhReduction = 0
+    if debuff.dhStartTime then
+        local dhEndTime = debuff.dhEndTime or currentTime
+        local dhDuration = dhEndTime - debuff.dhStartTime
+        
+        -- Dark Harvest causes DoTs to tick 30% faster
+        -- This means the DoT consumes duration 30% faster
+        dhReduction = dhDuration * 0.3
+    end
+    
+    local remaining = debuff.duration - elapsed - dhReduction
+    
+    return remaining
+end
+
+-- Update display
+function Mardot:UpdateDisplay()
+    if not self.mainFrame then return end
+    
+    -- Collect active debuffs for current target
+    local targetName = UnitExists("target") and UnitName("target") or nil
+    local activeDebuffs = {}
+    local currentTime = GetTime()
+    
+    for key, debuff in pairs(self.debuffs) do
+        if debuff.target == targetName then
+            local remaining = self:CalculateTimeRemaining(debuff)
+            
+            if remaining > 0 then
+                local baseData = self.baseDebuffData[debuff.spell]
+                table.insert(activeDebuffs, {
+                    spell = debuff.spell,
+                    remaining = remaining,
+                    icon = baseData.icon,
+                    color = baseData.color,
+                    priority = baseData.priority,
+                    stacks = debuff.stacks,
+                    dhActive = debuff.dhStartTime and not debuff.dhEndTime, -- Is DH currently active?
+                })
+            else
+                self.debuffs[key] = nil
+            end
+        end
+    end
+    
+    -- Sort by priority
+    table.sort(activeDebuffs, function(a, b) return a.priority < b.priority end)
     
     -- Update icons
     for i = 1, self.config.maxIcons do
-        local icon = dotFrame.icons[i]
-        local dot = activeDots[i]
+        local icon = self.mainFrame.icons[i]
+        local debuff = activeDebuffs[i]
         
-        if dot then
-            icon.texture:SetTexture(dot.icon)
-            icon.border:SetVertexColor(unpack(dot.color))
-            icon.text:SetText(string.format("%.0f", dot.remaining))
+        if debuff then
+            icon.texture:SetTexture(debuff.icon)
             
-            if dot.remaining > 5 then
+            -- Change border color if Dark Harvest is active on this DoT
+            if debuff.dhActive then
+                icon.border:SetVertexColor(0.3, 1.0, 0.3) -- Bright green for DH active
+            else
+                icon.border:SetVertexColor(unpack(debuff.color))
+            end
+            
+            -- Format time
+            local timeText
+            if debuff.remaining >= 60 then
+                timeText = string.format("%.0fm", debuff.remaining / 60)
+            elseif debuff.remaining >= 10 then
+                timeText = string.format("%.0f", debuff.remaining)
+            else
+                timeText = string.format("%.1f", debuff.remaining)
+            end
+            
+            icon.text:SetText(timeText)
+            
+            -- Color based on time remaining
+            if debuff.remaining > 5 then
                 icon.text:SetTextColor(0, 1, 0)
-            elseif dot.remaining > 3 then
+            elseif debuff.remaining > 3 then
                 icon.text:SetTextColor(1, 1, 0)
             else
                 icon.text:SetTextColor(1, 0, 0)
+            end
+            
+            -- Show stacks if > 1
+            if debuff.stacks and debuff.stacks > 1 then
+                icon.name:SetText(debuff.stacks)
+                icon.name:Show()
+            else
+                icon.name:Hide()
             end
             
             icon:Show()
@@ -611,133 +923,13 @@ function Mardot:UpdatePlate(plate, dotFrame)
             icon:Hide()
         end
     end
-end
-
--- Create configuration UI
-function Mardot:CreateConfigUI()
-    if self.configFrame then
-        self.configFrame:Show()
-        return
+    
+    -- Show/hide frame based on active debuffs
+    if table.getn(activeDebuffs) > 0 and self.config.enabled then
+        self.mainFrame:Show()
+    else
+        self.mainFrame:Hide()
     end
-    
-    local frame = CreateFrame("Frame", "MardotConfigFrame", UIParent)
-    frame:SetWidth(400)
-    frame:SetHeight(500)
-    frame:SetPoint("CENTER", 0, 0)
-    frame:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 11, right = 12, top = 12, bottom = 11 }
-    })
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function() this:StartMoving() end)
-    frame:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
-    
-    -- Title
-    local title = frame:CreateFontString(nil, "OVERLAY")
-    title:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
-    title:SetPoint("TOP", frame, "TOP", 0, -20)
-    title:SetText("Mardot Configuration")
-    
-    -- Close button
-    local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    closeBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -5)
-    
-    -- Icon Size Slider
-    local sizeSlider = CreateFrame("Slider", "MardotSizeSlider", frame, "OptionsSliderTemplate")
-    sizeSlider:SetPoint("TOPLEFT", frame, "TOPLEFT", 30, -60)
-    sizeSlider:SetMinMaxValues(16, 48)
-    sizeSlider:SetValue(self.config.iconSize)
-    sizeSlider:SetValueStep(2)
-    sizeSlider:SetObeyStepOnDrag(true)
-    getglobal(sizeSlider:GetName() .. 'Low'):SetText('16')
-    getglobal(sizeSlider:GetName() .. 'High'):SetText('48')
-    getglobal(sizeSlider:GetName() .. 'Text'):SetText('Icon Size: ' .. self.config.iconSize)
-    sizeSlider:SetScript("OnValueChanged", function()
-        local val = this:GetValue()
-        getglobal(this:GetName() .. 'Text'):SetText('Icon Size: ' .. val)
-        Mardot.config.iconSize = val
-        Mardot:ReloadNameplates()
-    end)
-    
-    -- Max Icons Slider
-    local maxIconsSlider = CreateFrame("Slider", "MardotMaxIconsSlider", frame, "OptionsSliderTemplate")
-    maxIconsSlider:SetPoint("TOPLEFT", sizeSlider, "BOTTOMLEFT", 0, -40)
-    maxIconsSlider:SetMinMaxValues(3, 10)
-    maxIconsSlider:SetValue(self.config.maxIcons)
-    maxIconsSlider:SetValueStep(1)
-    maxIconsSlider:SetObeyStepOnDrag(true)
-    getglobal(maxIconsSlider:GetName() .. 'Low'):SetText('3')
-    getglobal(maxIconsSlider:GetName() .. 'High'):SetText('10')
-    getglobal(maxIconsSlider:GetName() .. 'Text'):SetText('Max Icons: ' .. self.config.maxIcons)
-    maxIconsSlider:SetScript("OnValueChanged", function()
-        local val = this:GetValue()
-        getglobal(this:GetName() .. 'Text'):SetText('Max Icons: ' .. val)
-        Mardot.config.maxIcons = val
-        Mardot:ReloadNameplates()
-    end)
-    
-    -- Debuff toggles section
-    local debuffLabel = frame:CreateFontString(nil, "OVERLAY")
-    debuffLabel:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
-    debuffLabel:SetPoint("TOPLEFT", maxIconsSlider, "BOTTOMLEFT", -10, -30)
-    debuffLabel:SetText("Enabled Debuffs:")
-    
-    -- Scrollable debuff list
-    local scrollFrame = CreateFrame("ScrollFrame", "MardotScrollFrame", frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", debuffLabel, "BOTTOMLEFT", 0, -10)
-    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 15)
-    
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(320)
-    scrollChild:SetHeight(1)
-    scrollFrame:SetScrollChild(scrollChild)
-    
-    -- Create checkboxes for each debuff (sorted by priority)
-    local sortedDebuffs = {}
-    for spell, data in pairs(self.baseDebuffData) do
-        table.insert(sortedDebuffs, {spell = spell, priority = data.priority})
-    end
-    table.sort(sortedDebuffs, function(a, b) return a.priority < b.priority end)
-    
-    local yOffset = 0
-    for _, entry in ipairs(sortedDebuffs) do
-        local spell = entry.spell
-        local data = self.baseDebuffData[spell]
-        
-        local checkbox = CreateFrame("CheckButton", "MardotCheck"..spell, scrollChild, "UICheckButtonTemplate")
-        checkbox:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, yOffset)
-        checkbox:SetChecked(self.config.debuffStates[spell])
-        
-        local label = checkbox:CreateFontString(nil, "OVERLAY")
-        label:SetFont("Fonts\\FRIZQT__.TTF", 11)
-        label:SetPoint("LEFT", checkbox, "RIGHT", 5, 0)
-        label:SetText(spell)
-        
-        checkbox:SetScript("OnClick", function()
-            Mardot.config.debuffStates[spell] = this:GetChecked()
-        end)
-        
-        yOffset = yOffset - 25
-    end
-    
-    scrollChild:SetHeight(math.abs(yOffset))
-    
-    self.configFrame = frame
-    frame:Show()
-end
-
--- Reload all nameplates (for config changes)
-function Mardot:ReloadNameplates()
-    for plate, dotFrame in pairs(self.frames) do
-        dotFrame:Hide()
-        self.frames[plate] = nil
-    end
-    
-    -- They'll be recreated on next scan
 end
 
 -- Slash commands
@@ -747,27 +939,82 @@ SlashCmdList["MARDOT"] = function(msg)
     if msg == "toggle" then
         Mardot.config.enabled = not Mardot.config.enabled
         Mardot:Print("Mardot " .. (Mardot.config.enabled and "|cff00ff00enabled|r" or "|cffff0000disabled|r"))
-    elseif msg == "config" or msg == "cfg" then
-        Mardot:CreateConfigUI()
-    elseif msg == "haste" then
-        local currentHaste = Mardot:GetCurrentHaste()
-        Mardot:Print("Current spell haste: |cff00ff00" .. string.format("%.1f%%", currentHaste) .. "|r")
+        Mardot:UpdateDisplay()
+    elseif msg == "lock" then
+        Mardot.config.locked = not Mardot.config.locked
+        Mardot:Print("Frame " .. (Mardot.config.locked and "|cffff0000locked|r" or "|cff00ff00unlocked|r"))
+    elseif msg == "show" then
+        Mardot.mainFrame:Show()
+        Mardot:Print("Frame shown (drag to move when unlocked)")
+    elseif msg == "hide" then
+        Mardot.mainFrame:Hide()
+    elseif msg == "reset" then
+        Mardot.mainFrame:ClearAllPoints()
+        Mardot.mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+        Mardot.config.posX = nil
+        Mardot.config.posY = nil
+        Mardot:Print("Frame position reset")
+    elseif msg == "size" then
+        local size = string.match(msg, "size%s+(%d+)")
+        if size then
+            size = tonumber(size)
+            if size >= 16 and size <= 64 then
+                Mardot.config.iconSize = size
+                Mardot:Print("Icon size set to " .. size .. " (reload UI to apply)")
+            else
+                Mardot:Print("Size must be between 16 and 64")
+            end
+        else
+            Mardot:Print("Current icon size: " .. Mardot.config.iconSize)
+            Mardot:Print("Usage: /mardot size <16-64>")
+        end
+    elseif msg == "reload" then
+        Mardot.mainFrame:Hide()
+        Mardot.mainFrame = nil
+        Mardot:CreateMainWindow()
+        Mardot:Print("Frame reloaded with new settings")
     elseif msg == "debug" then
         Mardot:Print("Active DoTs tracked:")
+        local count = 0
         for key, info in pairs(Mardot.debuffs) do
+            count = count + 1
             local remaining = info.duration - (GetTime() - info.applied)
-            local dhInfo = ""
-            if info.darkHarvestTicks and info.darkHarvestTicks > 0 then
-                dhInfo = string.format(" [DH: %d ticks]", info.darkHarvestTicks)
-            end
-            Mardot:Print(string.format("  %s: %.1fs%s", key, remaining, dhInfo))
+            Mardot:Print(string.format("  %s: %.1fs", key, remaining))
+        end
+        if count == 0 then
+            Mardot:Print("  None")
+        end
+        Mardot:Print("Target: " .. (UnitExists("target") and UnitName("target") or "None"))
+        Mardot:Print("Lua version: " .. (_VERSION or "Unknown"))
+    elseif string.sub(msg, 1, 4) == "test" then
+        local spell = string.match(msg, "test%s+(.+)")
+        if spell and Mardot.baseDebuffData[spell] then
+            local targetName = UnitExists("target") and UnitName("target") or "TestTarget"
+            local key = targetName.."-"..spell
+            local baseData = Mardot.baseDebuffData[spell]
+            Mardot.debuffs[key] = {
+                applied = GetTime(),
+                duration = baseData.duration,
+                spell = spell,
+                target = targetName,
+                stacks = 1,
+            }
+            Mardot:Print("Test DoT added: " .. spell .. " on " .. targetName)
+            Mardot:UpdateDisplay()
+        else
+            Mardot:Print("Usage: /mardot test SpellName")
+            Mardot:Print("Example: /mardot test Corruption")
         end
     else
         Mardot:Print("Commands:")
         Mardot:Print("  /mardot toggle - Enable/disable addon")
-        Mardot:Print("  /mardot config - Open configuration")
-        Mardot:Print("  /mardot haste - Show current haste %")
-        Mardot:Print("  /mardot debug - Show active DoTs")
+        Mardot:Print("  /mardot lock - Lock/unlock frame")
+        Mardot:Print("  /mardot show - Show frame")
+        Mardot:Print("  /mardot reset - Reset position")
+        Mardot:Print("  /mardot size <16-64> - Set icon size")
+        Mardot:Print("  /mardot reload - Reload frame")
+        Mardot:Print("  /mardot debug - Show debug info")
+        Mardot:Print("  /mardot test <spell> - Test DoT")
     end
 end
 
