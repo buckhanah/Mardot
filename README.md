@@ -1,14 +1,8 @@
-Absolutely! Here's an updated README for your GitHub repo:
-
-```markdown
 # Mardot
 
 A Turtle WoW addon that displays DoT (Damage over Time) and debuff durations with dynamic haste tracking in a movable window.
 
-![Version](https://img.shields.io/badge/version-3.1-blue)
-![WoW](https://img.shields.io/badge/WoW-1.12.1-orange)
-![Turtle WoW](https://img.shields.io/badge/Turtle%20WoW-Compatible-green)
-![SuperWoW](https://img.shields.io/badge/SuperWoW-Supported-purple)
+**Version:** 3.1 | **Turtle WoW Compatible** | **SuperWoW Supported**
 
 ## Features
 
@@ -38,9 +32,9 @@ A Turtle WoW addon that displays DoT (Damage over Time) and debuff durations wit
 ### Manual Installation
 1. Download the latest release or clone this repository
 2. Extract the `Mardot` folder to your WoW installation directory:
-   ```
+```
    <WoW Directory>/Interface/AddOns/Mardot/
-   ```
+```
 3. Restart WoW or type `/console reloadui` in-game
 
 ### Folder Structure
@@ -183,4 +177,3 @@ Inspired by Cursive addon's event handling patterns.
 ### Version 1.0
 - Initial release
 - Basic DoT tracking
-```
