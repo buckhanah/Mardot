@@ -582,9 +582,14 @@ function Mardot:GetCurrentHaste()
         local buffName = MardotTooltipTextLeft1:GetText()
         
         -- Check for known haste buffs
-        if buffName == "Bloodlust" or buffName == "Heroism" then
-            totalHaste = totalHaste + 30
+        if buffName == "Bloodlust" then
+            -- Turtle WoW custom: 20% cast speed
+            totalHaste = totalHaste + 20
+        elseif buffName == "Heroism" then
+            -- If Alliance version exists
+            totalHaste = totalHaste + 20
         elseif buffName == "Berserking" then
+            -- Troll racial: 10-30% based on health
             local healthPercent = UnitHealth("player") / UnitHealthMax("player")
             local berserkingHaste = 10 + (1 - healthPercent) * 20
             totalHaste = totalHaste + berserkingHaste
