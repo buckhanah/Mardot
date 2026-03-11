@@ -1,47 +1,49 @@
+Absolutely! Here's an updated README for your GitHub repo:
+
+```markdown
 # Mardot
 
-A Turtle WoW addon that displays DoT (Damage over Time) and debuff durations as icons on enemy nameplates.
+A Turtle WoW addon that displays DoT (Damage over Time) and debuff durations with dynamic haste tracking in a movable window.
 
-![Version](https://img.shields.io/badge/version-2.1-blue)
+![Version](https://img.shields.io/badge/version-3.1-blue)
 ![WoW](https://img.shields.io/badge/WoW-1.12.1-orange)
 ![Turtle WoW](https://img.shields.io/badge/Turtle%20WoW-Compatible-green)
+![SuperWoW](https://img.shields.io/badge/SuperWoW-Supported-purple)
 
 ## Features
 
-- 📊 **Icon-based display** - Shows debuff icons with countdown timers on nameplates
-- ⚡ **Dynamic haste tracking** - Automatically adjusts for spell haste from gear and buffs
-- 🌀 **Dark Harvest support** - Tracks channeling effects that accelerate DoT tick rates
+- 📊 **Movable window display** - Clean, draggable frame showing DoTs on current target
+- ⚡ **SuperWoW integration** - Uses UNIT_CASTEVENT for instant, accurate tracking when available
+- 🌀 **Dark Harvest support** - Real-time DoT acceleration tracking with visual indicator (green border)
 - 🎯 **Priority-based ordering** - Smart display order (Curses → Corruption → Other DoTs)
-- ⚙️ **Full configuration UI** - Adjust icon size, max icons, and toggle individual debuffs
-- 💾 **Persistent settings** - All configurations save between sessions
+- 🛡️ **Paladin Seal tracker** - Shows active seal below character in 3D world
+- 💾 **Persistent settings** - Position and preferences save between sessions
 
 ## Supported Classes
 
 ### Warlock
-- All Curses (Agony, Shadows, Recklessness, Doom, Weakness, Tongues)
-- Corruption
-- Immolate
-- Siphon Life
+- **All Curses** (Agony, Shadows, Recklessness, Doom, Weakness, Tongues, Elements)
+- **Corruption**
+- **Immolate**
+- **Siphon Life**
 
-### Warrior
-- Rend (21s duration, bleeds every 3s)
-- Hamstring (15s snare)
- 
+**Dark Harvest**: When channeling, DoT icons turn green and timers accelerate 30% faster in real-time!
+
 ### Paladin
-- Judgements duration (10s)
+- **Judgement durations** (Light, Wisdom, Justice, Crusader) - 10s on target
+- **Active Seal display** - Shows current seal icon below character (Righteousness, Crusader, Command, Light, Wisdom, Justice)
 
 ## Installation
 
 ### Manual Installation
 1. Download the latest release or clone this repository
 2. Extract the `Mardot` folder to your WoW installation directory:
-```
+   ```
    <WoW Directory>/Interface/AddOns/Mardot/
-```
+   ```
 3. Restart WoW or type `/console reloadui` in-game
 
 ### Folder Structure
-Your AddOns folder should look like:
 ```
 Interface/
 └── AddOns/
@@ -53,21 +55,19 @@ Interface/
 ## Usage
 
 ### Commands
-- `/mardot config` or `/md config` - Open configuration UI
-- `/mardot toggle` or `/md toggle` - Enable/disable addon
-- `/mardot haste` or `/md haste` - Show current spell haste percentage
-- `/mardot debug` or `/md debug` - Show active DoTs being tracked
+- `/mardot` or `/md` - Show command list
+- `/mardot toggle` - Enable/disable addon
+- `/mardot lock` - Lock/unlock DoT window position
+- `/mardot show` - Force show DoT window
+- `/mardot reset` - Reset window position to center
+- `/mardot size <16-64>` - Set icon size (requires reload)
+- `/mardot reload` - Reload window with new settings
+- `/mardot debug` - Show active DoTs and addon info
+- `/mardot test <spell>` - Add test DoT for testing
 
-### Configuration
-Type `/mardot config` to open the settings panel where you can:
-- Adjust icon size (16-48 pixels)
-- Set maximum number of icons displayed (3-10)
-- Enable/disable individual debuffs
-- All settings save automatically
+### Display Priority
 
-## Display Priority
-
-Icons are displayed in strategic order, NOT by time remaining:
+Icons display in strategic order (NOT by time remaining):
 
 **Warlock Priority:**
 1. Curse of Agony
@@ -76,57 +76,111 @@ Icons are displayed in strategic order, NOT by time remaining:
 4. Curse of Doom
 5. Other Curses
 6. Corruption
-7. Other DoTs (Immolate, Siphon Life, etc.)
+7. Immolate, Siphon Life
 
-This ensures important debuffs like curses are always visible first!
+**Example:** If you have CoA (20s), Corruption (5s), Immolate (12s) active, they display as:
+```
+[CoA] [Corr] [Immo]
+ 20s    5s     12s
+```
 
-## Dark Harvest Support
+## Dark Harvest Mechanics
 
-The addon intelligently tracks Dark Harvest channeling:
-- Detects when you start channeling Dark Harvest
-- Accelerates DoT durations as the channel ticks
-- Adjusts timers dynamically based on actual tick consumption
-- Shows acceleration count in debug mode
+**What it does:**
+- While channeling Dark Harvest, all DoTs on the target tick 30% faster
+- DoT durations are consumed 30% faster during the channel
+- Visual indicator: Icon borders turn **bright green** while Dark Harvest is active
 
-## Screenshots
+**How it works:**
+```
+Time consumed = normal_elapsed + (Dark_Harvest_duration × 0.3)
+```
 
-*Coming soon - add your own screenshots here!*
+**Example:**
+- Cast Corruption (18s) at T=0
+- Channel Dark Harvest for 8 seconds starting at T=5
+- At T=13: Corruption has ~2.6s remaining (18s - 13s - 2.4s acceleration)
+
+## Paladin Features
+
+### Judgement Tracking
+Shows judgement debuff durations (10s) on enemy targets in the main DoT window.
+
+### Seal Display
+- Displays your active seal as an icon below your character in the 3D world
+- Position: Center screen, Y=-150 (below character feet)
+- Updates instantly when switching seals
+- Color-coded borders for each seal type
+
+## SuperWoW Support
+
+Mardot automatically detects SuperWoW and uses `UNIT_CASTEVENT` for:
+- Instant spell tracking (no scanning delay)
+- Accurate cast detection with spell IDs
+- Latency compensation based on your ping
+
+**Without SuperWoW:** Falls back to `UnitDebuff()` scanning (still works!)
+
+## Configuration
+
+Settings are saved per character in `MardotDB`:
+- Window position
+- Icon size (default: 32px)
+- Lock state
+- Enabled debuffs
+
+Adjust icon size:
+```
+/mardot size 40
+/mardot reload
+```
+
+## Color Coding
+
+**Timer Colors:**
+- Green: >5 seconds remaining
+- Yellow: 3-5 seconds remaining
+- Red: <3 seconds remaining
+
+**Border Colors:**
+- Default: Spell-specific color
+- Bright Green: Dark Harvest active on this DoT
 
 ## Known Issues
 
-- Nameplate detection may vary depending on other nameplate addons
-- Combat log parsing depends on game language (currently optimized for English)
+- Spell IDs may need verification for Turtle WoW custom content
+- Seal position may need adjustment based on UI scale/resolution
 
 ## Contributing
 
-Feel free to open issues or submit pull requests for:
-- Additional debuffs/spells
-- Bug fixes
+Contributions welcome! Please open issues for:
+- Missing spells/debuffs
+- Incorrect spell IDs for Turtle WoW
+- Bug reports
 - Feature requests
-- Localization support
-
-## License
-
-This addon is provided as-is for the Turtle WoW community.
 
 ## Credits
 
 Created by IT Solutions for the Turtle WoW community.
 
-Special thanks to the Turtle WoW development team for their custom content that inspired features like Dark Harvest tracking.
+Inspired by Cursive addon's event handling patterns.
 
 ## Changelog
 
+### Version 3.1 (Current)
+- Added SuperWoW UNIT_CASTEVENT support
+- Added real-time Dark Harvest acceleration tracking
+- Added Paladin Seal display below character
+- Removed Warrior support (focused scope)
+- Window-based display (moved away from nameplates)
+- Improved stability and performance
+
 ### Version 2.1
-- Initial public release
-- Icon-based nameplate display
-- Full configuration UI
-- Dynamic haste tracking
-- Dark Harvest support
-- Priority-based ordering system
+- Priority-based icon ordering
+- Configuration commands
+- Dark Harvest detection
 
-
-
-<img width="462" height="42" alt="image" src="https://github.com/user-attachments/assets/2079e905-9057-48cc-b837-da75b2592771" />
-
-<img width="228" height="44" alt="image" src="https://github.com/user-attachments/assets/4410a927-038b-4a42-b44d-d07658f86473" />
+### Version 1.0
+- Initial release
+- Basic DoT tracking
+```
